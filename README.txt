@@ -3,6 +3,12 @@ lua-miniz - Lua module for miniz support
 This module add deflate/inflate and zip file operations support to Lua
 language. some code from luvit's miniz module, thanks for that work!
 
+license:
+This module has the same license with Lua (the Lua license here[1]).
+note that the modified version of miniz.c has its own license (see miniz.c file).
+
+[1]: https://www.lua.org/license.html
+
 build:
 
 use your fabourite compiler to build lminiz.c and miniz.c, get miniz.dll
