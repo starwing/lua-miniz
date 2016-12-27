@@ -93,37 +93,65 @@ static int Lcrc32(lua_State *L) {
     return 1;
 }
 
-static int flush_buffer(const void *s, int len, void *ud) {
-    luaL_Buffer *b = (luaL_Buffer*)ud;
-    luaL_addlstring(b, s, len);
-    return len;
-}
-
 static int lmz_compress(lua_State *L, int def_flags) {
-    size_t len;
+    size_t len, offset = 0;
     const char *s = luaL_checklstring(L, 1, &len);
     int flags = (int)luaL_optinteger(L, 2, def_flags);
-    mz_bool result;
     luaL_Buffer b;
+    tdefl_compressor comp;
+    mz_uint8 outb[LUAL_BUFFERSIZE];
     luaL_buffinit(L, &b);
-    result = tdefl_compress_mem_to_output(s, len, flush_buffer, &b, flags);
+    if (tdefl_init(&comp, NULL, NULL, flags) != TDEFL_STATUS_OKAY)
+        luaL_error(L, "compress failure");
+    for (;;) {
+        size_t in_size = len - offset;
+        size_t out_size = LUAL_BUFFERSIZE;
+        tdefl_status status = tdefl_compress(&comp,
+                s + offset, &in_size, outb, &out_size, flags);
+        offset += in_size;
+        if (out_size != 0)
+            luaL_addlstring(&b, (char*)outb, out_size);
+        if (status == TDEFL_STATUS_DONE) {
+            luaL_pushresult(&b);
+            break;
+        }
+        else if (status != TDEFL_STATUS_OKAY)
+            luaL_error(L, "compress failure");
+    }
     luaL_pushresult(&b);
-    return result ? 1 : 0;
+    return 1;
 }
 
 static int lmz_decompress(lua_State *L, int def_flags) {
-    size_t len, newlen;
+    size_t len, offset = 0, dict_offset = 0;
     const char *s = luaL_checklstring(L, 1, &len);
     int flags = (int)luaL_optinteger(L, 2, def_flags);
-    mz_bool result;
     luaL_Buffer b;
+    tinfl_decompressor decomp;
+    mz_uint8 dict[TINFL_LZ_DICT_SIZE];
     luaL_buffinit(L, &b);
-    newlen = len;
-    result = tinfl_decompress_mem_to_callback(s, &newlen, flush_buffer, &b, flags);
-    luaL_pushresult(&b);
-    if (result == 0) return 0;
-    if (newlen != len) {
-        lua_pushinteger(L, newlen);
+    tinfl_init(&decomp);
+    for (;;) {
+        size_t in_size  = len - offset;
+        size_t out_size = TINFL_LZ_DICT_SIZE - dict_offset;
+        const int flags_mask = ~(TINFL_FLAG_HAS_MORE_INPUT
+                               | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF);
+        tinfl_status status = tinfl_decompress(&decomp,
+                (const mz_uint8*)s + offset, &in_size,
+                dict, dict + dict_offset, &out_size, flags & flags_mask);
+        offset += in_size;
+        if (out_size != 0)
+            luaL_addlstring(&b, (char*)dict + dict_offset, out_size);
+        if (status != TINFL_STATUS_HAS_MORE_OUTPUT) {
+            luaL_pushresult(&b);
+            if (status != TINFL_STATUS_DONE)
+                luaL_error(L, "decompress failure");
+            break;
+        }
+        dict_offset = (dict_offset + out_size) & (TINFL_LZ_DICT_SIZE - 1);
+    }
+    if (offset != len) {
+        lua_pushinteger(L, offset);
         return 2;
     }
     return 1;
@@ -495,5 +523,7 @@ LUALIB_API int luaopen_miniz(lua_State *L) {
     luaL_newlib(L, libs);
     return 1;
 }
+
 /* cc: flags+='-s -O3 -mdll -DLUA_BUILD_AS_DLL -fno-strict-aliasing'
  * cc: libs+='-llua53' output='miniz.dll' */
+
