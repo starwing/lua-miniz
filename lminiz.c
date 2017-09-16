@@ -107,7 +107,7 @@ static int lmz_compress(lua_State *L, int def_flags) {
         size_t in_size = len - offset;
         size_t out_size = LUAL_BUFFERSIZE;
         tdefl_status status = tdefl_compress(&comp,
-                s + offset, &in_size, outb, &out_size, flags);
+                s + offset, &in_size, outb, &out_size, TDEFL_FINISH);
         offset += in_size;
         if (out_size != 0)
             luaL_addlstring(&b, (char*)outb, out_size);
@@ -524,6 +524,7 @@ LUALIB_API int luaopen_miniz(lua_State *L) {
     return 1;
 }
 
-/* cc: flags+='-s -O3 -mdll -DLUA_BUILD_AS_DLL -fno-strict-aliasing'
- * cc: libs+='-llua53' output='miniz.dll' */
+/* win32cc: flags+='-s -O3 -mdll -DLUA_BUILD_AS_DLL -fno-strict-aliasing'
+ * win32cc: libs+='-llua53' output='miniz.dll'
+ * maccc: flags+='-O3 -shared -undefined dynamic_lookup' output='miniz.so' */
 

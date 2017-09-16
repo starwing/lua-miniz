@@ -2851,7 +2851,9 @@ void *tdefl_write_image_to_png_file_in_memory(const void *pImage, int w, int h, 
   #define MZ_FILE void *
 #else
   #include <stdio.h>
+#ifndef __APPLE__
   #include <share.h>
+#endif
   #include <sys/stat.h>
 
   #if defined(_MSC_VER) || defined(__MINGW64__)
