@@ -3,6 +3,7 @@
 #include <lauxlib.h>
 
 #define MINIZ_NO_ZLIB_APIS
+#include "miniz.h"
 #include "miniz.c"
 
 #define return_self(L) do { lua_settop(L, 1); return 1; } while (0)
@@ -343,7 +344,7 @@ static int Lreader_extract(lua_State *L) {
 
 static int Lreader_get_offset(lua_State *L) {
     mz_zip_archive *za = luaL_checkudata(L, 1, LMZ_ZIP_READER);
-    lua_pushinteger(L, za->m_start_ofs);
+    lua_pushinteger(L, za->m_central_directory_file_ofs);
     return 1;
 }
 
