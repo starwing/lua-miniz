@@ -319,6 +319,7 @@ static int Lreader_is_file_a_directory(lua_State  *L) {
 }
 
 static size_t Lwriter(void *ud, mz_uint64 file_ofs, const void *p, size_t n) {
+    (void)file_ofs;
     luaL_addlstring((luaL_Buffer*)ud, p, n);
     return n;
 }
@@ -501,7 +502,7 @@ static void open_zipwriter(lua_State *L) {
     }
 }
 
-LUALIB_API int luaopen_miniz(lua_State *L) {
+LUAMOD_API int luaopen_miniz(lua_State *L) {
     luaL_Reg libs[] = {
         { "new_reader", Lzip_read_file },
         { "new_writer", Lzip_write_string },
