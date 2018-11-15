@@ -94,81 +94,150 @@ static int Lcrc32(lua_State *L) {
     return 1;
 }
 
-static int lmz_compress(lua_State *L, int def_flags) {
-    size_t len, offset = 0;
-    const char *s = luaL_checklstring(L, 1, &len);
-    int flags = (int)luaL_optinteger(L, 2, def_flags);
-    luaL_Buffer b;
-    tdefl_compressor comp;
-    mz_uint8 outb[LUAL_BUFFERSIZE];
-    luaL_buffinit(L, &b);
-    if (tdefl_init(&comp, NULL, NULL, flags) != TDEFL_STATUS_OKAY)
+#define LMZ_COMPRESSOR   "miniz.Compressor"
+#define LMZ_DECOMPRESSOR "miniz.Decompressor"
+
+typedef tdefl_compressor lmz_Comp;
+typedef struct lmz_Decomp {
+    tinfl_decompressor decomp;
+    mz_uint   flags;
+    mz_uint8 *curr;
+    mz_uint8  dict[TINFL_LZ_DICT_SIZE];
+} lmz_Decomp;
+
+static void lmz_initcomp(lua_State *L, int start, lmz_Comp *c) {
+    static const mz_uint probes[11] =
+    { 0, 1, 6, 32, 16, 32, 128, 256, 512, 768, 1500 };
+    int level = (int)luaL_optinteger(L, start, MZ_DEFAULT_LEVEL);
+    mz_uint flags = probes[(level >= 0) ? MZ_MIN(10, level) : MZ_DEFAULT_LEVEL];
+    if (lua_tointeger(L, start+1) >= 0) flags |= TDEFL_WRITE_ZLIB_HEADER;
+    if (level <= 3) flags |= TDEFL_GREEDY_PARSING_FLAG;
+    if (tdefl_init(c, NULL, NULL, flags) != TDEFL_STATUS_OKAY)
         luaL_error(L, "compress failure");
+}
+
+static void lmz_initdecomp(lua_State *L, int start, lmz_Decomp *d) {
+    int window_bits = (int)luaL_optinteger(L, start, 0);
+    d->flags = window_bits >= 0 ? TINFL_FLAG_PARSE_ZLIB_HEADER : 0;
+    d->flags |= TINFL_FLAG_HAS_MORE_INPUT;
+    d->curr = d->dict;
+    tinfl_init(&d->decomp);
+}
+
+static int lmz_compress(lua_State *L, int start, lmz_Comp *c, int flush) {
+    size_t len, offset = 0, output = 0;
+    const char *s = luaL_checklstring(L, start, &len);
+    luaL_Buffer b;
+    luaL_buffinit(L, &b);
     for (;;) {
         size_t in_size = len - offset;
         size_t out_size = LUAL_BUFFERSIZE;
-        tdefl_status status = tdefl_compress(&comp,
-                s + offset, &in_size, outb, &out_size, TDEFL_FINISH);
+        tdefl_status status = tdefl_compress(c, s + offset, &in_size,
+                (mz_uint8*)luaL_prepbuffer(&b), &out_size, flush);
         offset += in_size;
-        if (out_size != 0)
-            luaL_addlstring(&b, (char*)outb, out_size);
-        if (status == TDEFL_STATUS_DONE) {
+        output += out_size;
+        luaL_addsize(&b, out_size);
+        if (offset == len || status == TDEFL_STATUS_DONE) {
             luaL_pushresult(&b);
-            break;
-        }
-        else if (status != TDEFL_STATUS_OKAY)
+            lua_pushboolean(L, status == TDEFL_STATUS_DONE);
+            lua_pushinteger(L, len);
+            lua_pushinteger(L, output);
+            return 4;
+        } else if (status != TDEFL_STATUS_OKAY)
             luaL_error(L, "compress failure");
     }
-    luaL_pushresult(&b);
-    return 1;
 }
 
-static int lmz_decompress(lua_State *L, int def_flags) {
-    size_t len, offset = 0, dict_offset = 0;
-    const char *s = luaL_checklstring(L, 1, &len);
-    int flags = (int)luaL_optinteger(L, 2, def_flags);
+static int lmz_decompress(lua_State *L, int start, lmz_Decomp *d) {
+    size_t len, offset = 0, output = 0;
+    const char *s = luaL_checklstring(L, start, &len);
     luaL_Buffer b;
-    tinfl_decompressor decomp;
-    mz_uint8 dict[TINFL_LZ_DICT_SIZE];
     luaL_buffinit(L, &b);
-    tinfl_init(&decomp);
     for (;;) {
         size_t in_size  = len - offset;
-        size_t out_size = TINFL_LZ_DICT_SIZE - dict_offset;
-        const int flags_mask = ~(TINFL_FLAG_HAS_MORE_INPUT
-                               | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF);
-        tinfl_status status = tinfl_decompress(&decomp,
-                (const mz_uint8*)s + offset, &in_size,
-                dict, dict + dict_offset, &out_size, flags & flags_mask);
+        size_t out_size = TINFL_LZ_DICT_SIZE - (d->curr - d->dict);
+        tinfl_status status = tinfl_decompress(&d->decomp,
+                (void*)(s + offset), &in_size, d->dict, d->curr, &out_size,
+                d->flags & ~TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF);
         offset += in_size;
-        if (out_size != 0)
-            luaL_addlstring(&b, (char*)dict + dict_offset, out_size);
-        if (status != TINFL_STATUS_HAS_MORE_OUTPUT) {
+        output += out_size;
+        if (out_size != 0) luaL_addlstring(&b, (char*)d->curr, out_size);
+        if (offset == len || status == TINFL_STATUS_DONE) {
             luaL_pushresult(&b);
-            if (status != TINFL_STATUS_DONE)
-                luaL_error(L, "decompress failure");
-            break;
-        }
-        dict_offset = (dict_offset + out_size) & (TINFL_LZ_DICT_SIZE - 1);
+            lua_pushboolean(L, status == TINFL_STATUS_DONE);
+            lua_pushinteger(L, len);
+            lua_pushinteger(L, output);
+            return 4;
+        } else if (status < 0) 
+            luaL_error(L, "decompress failure");
+        d->curr = &d->dict[(d->curr+out_size - d->dict) & (TINFL_LZ_DICT_SIZE-1)];
     }
-    if (offset != len) {
-        lua_pushinteger(L, offset);
-        return 2;
-    }
+}
+
+static int Lcomp_tostring(lua_State *L) {
+    lmz_Comp *c = luaL_checkudata(L, 1, LMZ_COMPRESSOR);
+    lua_pushfstring(L, LMZ_COMPRESSOR ": %p", c);
     return 1;
 }
 
-static int Lcompress(lua_State *L)
-{ return lmz_compress(L, TDEFL_DEFAULT_MAX_PROBES); }
+static int Lcomp_call(lua_State *L) {
+    static const char *opts[] = { "sync", "full", "finish", NULL };
+    static int flushs[] = { TDEFL_SYNC_FLUSH, TDEFL_FULL_FLUSH, TDEFL_FINISH };
+    lmz_Comp *c = luaL_checkudata(L, 1, LMZ_COMPRESSOR);
+    int flush = luaL_checkoption(L, 3, "sync", opts);
+    return lmz_compress(L, 2, c, flushs[flush]);
+}
 
-static int Ldecompress(lua_State *L)
-{ return lmz_decompress(L, 0); }
+static int Lcompress(lua_State *L) {
+    lua_settop(L, 3);
+    if (lua_type(L, 1) == LUA_TSTRING) {
+        lmz_Comp c;
+        lmz_initcomp(L, 2, &c);
+        return lmz_compress(L, 1, &c, TDEFL_FINISH);
+    } else {
+        lmz_Comp *c = lua_newuserdata(L, sizeof(lmz_Comp));
+        lmz_initcomp(L, 1, c);
+        if (luaL_newmetatable(L, LMZ_COMPRESSOR)) {
+            lua_pushcfunction(L, Lcomp_tostring);
+            lua_setfield(L, -2, "__tostring");
+            lua_pushcfunction(L, Lcomp_call);
+            lua_setfield(L, -2, "__call");
+        }
+        lua_setmetatable(L, -2);
+        return 1;
+    }
+}
 
-static int Ldeflate(lua_State *L)
-{ return lmz_compress(L, TDEFL_DEFAULT_MAX_PROBES|TDEFL_WRITE_ZLIB_HEADER); }
+static int Ldecomp_tostring(lua_State *L) {
+    lmz_Decomp *d = luaL_checkudata(L, 1, LMZ_DECOMPRESSOR);
+    lua_pushfstring(L, LMZ_DECOMPRESSOR ": %p", d);
+    return 1;
+}
 
-static int Linflate(lua_State *L)
-{ return lmz_decompress(L, TINFL_FLAG_PARSE_ZLIB_HEADER); }
+static int Ldecomp_call(lua_State *L) {
+    lmz_Decomp *d = luaL_checkudata(L, 1, LMZ_COMPRESSOR);
+    return lmz_decompress(L, 2, d);
+}
+
+static int Ldecompress(lua_State *L) {
+    if (lua_type(L, 1) == LUA_TSTRING) {
+        lmz_Decomp d;
+        lmz_initdecomp(L, 2, &d);
+        return lmz_decompress(L, 1, &d);
+    } else {
+        lmz_Decomp *d = (lmz_Decomp*)lua_newuserdata(L, sizeof(lmz_Decomp));
+        lmz_initdecomp(L, 1, d);
+        if (luaL_newmetatable(L, LMZ_DECOMPRESSOR)) {
+            lua_pushcfunction(L, Ldecomp_tostring);
+            lua_setfield(L, -2, "__tostring");
+            lua_pushcfunction(L, Ldecomp_call);
+            lua_setfield(L, -2, "__call");
+        }
+        lua_setmetatable(L, -2);
+        return 1;
+    }
+}
+
 
 /* zip reader */
 
@@ -451,7 +520,7 @@ static int Lwriter_add_file(lua_State *L) {
     const char* filename = luaL_optstring(L, 3, path);
     mz_uint flags = (mz_uint)luaL_optinteger(L, 4, MZ_DEFAULT_LEVEL);
     size_t len;
-    const char *comment =luaL_optlstring(L, 5, NULL, &len);
+    const char *comment = luaL_optlstring(L, 5, NULL, &len);
     if (!mz_zip_writer_add_file(za, path, filename, comment, (mz_uint16)len, flags)) {
         lua_pushnil(L);
         lua_pushstring(L, "Failure to add entry to zip");
@@ -473,8 +542,7 @@ static int Lwriter_finalize(lua_State *L) {
             return 2;
         }
         return 1;
-    }
-    if (!mz_zip_writer_finalize_archive(&za->base)) {
+    } else if (!mz_zip_writer_finalize_archive(&za->base)) {
         lua_pushnil(L);
         lua_pushstring(L, "Problem finalizing archive");
         return 2;
@@ -511,8 +579,6 @@ LUAMOD_API int luaopen_miniz(lua_State *L) {
         ENTRY(crc32),
         ENTRY(compress),
         ENTRY(decompress),
-        ENTRY(inflate),
-        ENTRY(deflate),
         ENTRY(zip_read_file),
         ENTRY(zip_read_string),
         ENTRY(zip_write_file),

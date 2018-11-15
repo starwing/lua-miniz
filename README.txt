@@ -30,42 +30,24 @@ miniz.crc32([string[, prev: number]]) -> number
     local b = miniz.crc32("world", a)
     -- a is the checksum of "hello", and b is the checksum of "helloworld"
 
-miniz.compress(string[, flags: number]) -> [string]
-miniz.decompress(string[, flags: number]) -> [string]
-miniz.deflate(string[, flags: number]) -> [string]
-miniz.inflate(string[, flags: number]) -> [string]
+miniz.compress(string[, level: number[, window_size: number]]) -> [string]
+miniz.decompress(string[, window_bits: number]) -> [string]
     compress/decompress string, use given flags.
-    deflate will compress a string to zlib-compatible result, and inflate will
-    decompress a zlib-compatible result.
+    when window_size and window_bits are negature, the compress result will
+    not include a zlib-compatible header.
 
-    flags for compress/deflate: (from miniz.c)
-        The low 12 bits are reserved to control the max # of hash probes per
-        dictionary lookup. (default is 128)
+miniz.compress([level: number[, window_size: number]]) -> [stream]
+miniz.decompress([window_bits: number]) -> [stream]
+    create a new compress/decompress stream,
 
-        0x1000: If set, the compressor outputs a zlib header before the
-                deflate data, and the Adler-32 of the source data at the end.
-                Otherwise, you'll get raw deflate data.
-        0x2000: Always compute the adler-32 of the input data (even when not
-                writing zlib headers).
-        0x4000: Set to use faster greedy parsing, instead of more efficient
-                lazy parsing.
-        0x8000: Enable to decrease the compressor's initialization time to the
-                minimum, but the output may vary from run to run given the
-                same input (depending on the contents of memory).
-        0x10000: Only look for RLE matches (matches with a distance of 1)
-        0x20000: Discards matches <= 5 chars if enabled.
-        0x40000: Disable usage of optimized Huffman tables.
-        0x80000: Only use raw (uncompressed) deflate blocks.
+    when compress:
+    output, eof, input_bytes, output_bytes = stream(string[, flush])
+    where flush are "sync", "full" or "finish"
 
-    flags for decompress/inflate: (from miniz.c)
-        1: If set, the input has a valid zlib header and ends with an adler32 checksum
-           (it's a valid zlib stream). Otherwise, the input is a raw deflate stream.
-        2: If set, there are more input bytes available beyond the end of the supplied
-           input buffer. If clear, the input buffer contains all remaining input.
-        4: If set, the output buffer is large enough to hold the entire decompressed
-           stream. If clear, the output buffer is at least the size of the dictionary
-           (typically 32KB).
-        8: Force adler-32 checksum computation of the decompressed bytes.
+    when decompress:
+    output, eof, input_bytes, output_bytes = stream(string)
+
+    same as lua-zlib module.
 
 miniz.zip_read_file(filename: string[, flags: number]) -> [miniz.ZipReader]
 miniz.zip_read_string(content: string[, flags: number]) -> [miniz.ZipReader]
