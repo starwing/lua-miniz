@@ -98,6 +98,7 @@ static int Lcrc32(lua_State *L) {
 #define LMZ_DECOMPRESSOR "miniz.Decompressor"
 
 typedef tdefl_compressor lmz_Comp;
+
 typedef struct lmz_Decomp {
     tinfl_decompressor decomp;
     mz_uint   flags;
@@ -248,7 +249,7 @@ static int Lzip_read_string(lua_State *L) {
     const char *s = luaL_checklstring(L, 1, &len);
     mz_uint32 flags = (mz_uint32)luaL_optinteger(L, 2, 0);
     mz_zip_archive *za = lua_newuserdata(L, sizeof(mz_zip_archive));
-    memset(za, 0, sizeof(mz_zip_archive));
+    mz_zip_zero_struct(za);
     if (!mz_zip_reader_init_mem(za, s, len, flags))
         return 0;
     luaL_setmetatable(L, LMZ_ZIP_READER);
@@ -261,7 +262,7 @@ static int Lzip_read_file(lua_State *L) {
     const char *filename = luaL_checkstring(L, 1);
     mz_uint32 flags = (mz_uint32)luaL_optinteger(L, 2, 0);
     mz_zip_archive *za = lua_newuserdata(L, sizeof(mz_zip_archive));
-    memset(za, 0, sizeof(mz_zip_archive));
+    mz_zip_zero_struct(za);
     if (!mz_zip_reader_init_file(za, filename, flags))
         return 0;
     luaL_setmetatable(L, LMZ_ZIP_READER);
@@ -311,6 +312,13 @@ static int Lreader_get_num_files(lua_State *L) {
     mz_zip_archive *za = luaL_checkudata(L, 1, LMZ_ZIP_READER);
     lua_pushinteger(L, mz_zip_reader_get_num_files(za));
     return 1;
+}
+
+static int Lreader_get_offset(lua_State *L) {
+    mz_zip_archive *za = luaL_checkudata(L, 1, LMZ_ZIP_READER);
+    lua_pushinteger(L, mz_zip_get_archive_file_start_offset(za));
+    lua_pushinteger(L, mz_zip_get_archive_size(za));
+    return 2;
 }
 
 static int Lreader_locate_file(lua_State *L) {
@@ -412,12 +420,6 @@ static int Lreader_extract(lua_State *L) {
     return result ? 1 : 0;
 }
 
-static int Lreader_get_offset(lua_State *L) {
-    mz_zip_archive *za = luaL_checkudata(L, 1, LMZ_ZIP_READER);
-    lua_pushinteger(L, za->m_central_directory_file_ofs);
-    return 1;
-}
-
 static void open_zipreader(lua_State *L) {
     luaL_Reg libs[] = {
         { "__len", Lreader_get_num_files },
@@ -444,11 +446,6 @@ static void open_zipreader(lua_State *L) {
 
 #define LMZ_ZIP_WRITER "miniz.ZipWriter"
 
-typedef struct lmz_zip_archive {
-    mz_zip_archive base;
-    int has_heap;
-} lmz_zip_archive;
-
 static int Lwriter___tostring(lua_State* L) {
     mz_zip_archive *za = luaL_testudata(L, 1, LMZ_ZIP_WRITER);
     if (za) lua_pushfstring(L, "miniz.ZipWriter: %p", za);
@@ -459,10 +456,9 @@ static int Lwriter___tostring(lua_State* L) {
 static int Lzip_write_string(lua_State *L) {
     size_t size_to_reserve_at_beginning = (size_t)luaL_optinteger(L, 1, 0);
     size_t initial_allocation_size = (size_t)luaL_optinteger(L, 2, LUAL_BUFFERSIZE);
-    lmz_zip_archive* za = (lmz_zip_archive*)lua_newuserdata(L, sizeof(lmz_zip_archive));
-    memset(za, 0, sizeof(lmz_zip_archive));
-    za->has_heap = 1;
-    if (!mz_zip_writer_init_heap(&za->base,
+    mz_zip_archive* za = (mz_zip_archive*)lua_newuserdata(L, sizeof(mz_zip_archive));
+    mz_zip_zero_struct(za);
+    if (!mz_zip_writer_init_heap(za,
                 size_to_reserve_at_beginning, initial_allocation_size))
         return 0;
     luaL_setmetatable(L, LMZ_ZIP_WRITER);
@@ -472,9 +468,9 @@ static int Lzip_write_string(lua_State *L) {
 static int Lzip_write_file(lua_State *L) {
     const char *filename = luaL_checkstring(L, 1);
     size_t size_to_reserve_at_beginning = (size_t)luaL_optinteger(L, 2, 0);
-    lmz_zip_archive* za = (lmz_zip_archive*)lua_newuserdata(L, sizeof(lmz_zip_archive));
-    memset(za, 0, sizeof(lmz_zip_archive));
-    if (!mz_zip_writer_init_file(&za->base, filename, size_to_reserve_at_beginning))
+    mz_zip_archive* za = (mz_zip_archive*)lua_newuserdata(L, sizeof(mz_zip_archive));
+    mz_zip_zero_struct(za);
+    if (!mz_zip_writer_init_file(za, filename, size_to_reserve_at_beginning))
         return 0;
     luaL_setmetatable(L, LMZ_ZIP_WRITER);
     return 1;
@@ -530,11 +526,11 @@ static int Lwriter_add_file(lua_State *L) {
 }
 
 static int Lwriter_finalize(lua_State *L) {
-    lmz_zip_archive *za = (lmz_zip_archive*)luaL_checkudata(L, 1, LMZ_ZIP_WRITER);
-    if (za->has_heap) {
+    mz_zip_archive *za = (mz_zip_archive*)luaL_checkudata(L, 1, LMZ_ZIP_WRITER);
+    if (mz_zip_get_type(za) == MZ_ZIP_TYPE_HEAP) {
         size_t len = 0;
         void* s = NULL;
-        mz_bool result = mz_zip_writer_finalize_heap_archive(&za->base, &s, &len);
+        mz_bool result = mz_zip_writer_finalize_heap_archive(za, &s, &len);
         lua_pushlstring(L, s, len);
         free(s);
         if (!result) {
@@ -542,7 +538,7 @@ static int Lwriter_finalize(lua_State *L) {
             return 2;
         }
         return 1;
-    } else if (!mz_zip_writer_finalize_archive(&za->base)) {
+    } else if (!mz_zip_writer_finalize_archive(za)) {
         lua_pushnil(L);
         lua_pushstring(L, "Problem finalizing archive");
         return 2;
