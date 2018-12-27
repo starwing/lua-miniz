@@ -244,6 +244,17 @@ static int Ldecompress(lua_State *L) {
 
 #define LMZ_ZIP_READER "miniz.ZipReader"
 
+static int lmz_zip_pusherror(lua_State *L, mz_zip_archive *za, const char *prefix) {
+    mz_zip_error err = mz_zip_get_last_error(za);
+    const char *emsg = mz_zip_get_error_string(err);
+    lua_pushnil(L);
+    if (prefix == NULL)
+        lua_pushstring(L, emsg);
+    else
+        lua_pushfstring(L, "%s: %s", prefix, emsg);
+    return 2;
+}
+
 static int Lzip_read_string(lua_State *L) {
     size_t len;
     const char *s = luaL_checklstring(L, 1, &len);
@@ -251,7 +262,7 @@ static int Lzip_read_string(lua_State *L) {
     mz_zip_archive *za = lua_newuserdata(L, sizeof(mz_zip_archive));
     mz_zip_zero_struct(za);
     if (!mz_zip_reader_init_mem(za, s, len, flags))
-        return 0;
+        return lmz_zip_pusherror(L, za, NULL);
     luaL_setmetatable(L, LMZ_ZIP_READER);
     lua_pushvalue(L, 1);
     lua_rawsetp(L, LUA_REGISTRYINDEX, za);
@@ -264,7 +275,7 @@ static int Lzip_read_file(lua_State *L) {
     mz_zip_archive *za = lua_newuserdata(L, sizeof(mz_zip_archive));
     mz_zip_zero_struct(za);
     if (!mz_zip_reader_init_file(za, filename, flags))
-        return 0;
+        return lmz_zip_pusherror(L, za, filename);
     luaL_setmetatable(L, LMZ_ZIP_READER);
     return 1;
 }
@@ -293,9 +304,8 @@ static int Lreader___index(lua_State* L) {
         char filename[MZ_ZIP_MAX_ARCHIVE_FILENAME_SIZE];
         if (!mz_zip_reader_get_filename(za, file_index,
                     filename, MZ_ZIP_MAX_ARCHIVE_FILENAME_SIZE))
-            lua_pushnil(L);
-        else
-            lua_pushstring(L, filename);
+            return lmz_zip_pusherror(L, za, NULL);
+        lua_pushstring(L, filename);
         return 1;
     }
     return 0;
@@ -326,11 +336,7 @@ static int Lreader_locate_file(lua_State *L) {
     const char *path = luaL_checkstring(L, 2);
     mz_uint32 flags = (mz_uint32)luaL_optinteger(L, 3, 0);
     int index = mz_zip_reader_locate_file(za, path, NULL, flags);
-    if (index < 0) {
-        lua_pushnil(L);
-        lua_pushfstring(L, "Can't find file %s.", path);
-        return 2;
-    }
+    if (index < 0) return lmz_zip_pusherror(L, za, path);
     lua_pushinteger(L, index + 1);
     return 1;
 }
@@ -339,11 +345,8 @@ static int Lreader_stat(lua_State* L) {
     mz_zip_archive *za = luaL_checkudata(L, 1, LMZ_ZIP_READER);
     mz_uint file_index = (mz_uint)luaL_checkinteger(L, 2) - 1;
     mz_zip_archive_file_stat stat;
-    if (!mz_zip_reader_file_stat(za, file_index, &stat)) {
-        lua_pushnil(L);
-        lua_pushfstring(L, "%d is an invalid index", file_index);
-        return 2;
-    }
+    if (!mz_zip_reader_file_stat(za, file_index, &stat))
+        return lmz_zip_pusherror(L, za, NULL);
     lua_newtable(L);
     lua_pushinteger(L, file_index);
     lua_setfield(L, -2, "index");
@@ -379,11 +382,8 @@ static int Lreader_get_filename(lua_State* L) {
     mz_uint file_index = (mz_uint)luaL_checkinteger(L, 2) - 1;
     char filename[MZ_ZIP_MAX_ARCHIVE_FILENAME_SIZE];
     if (!mz_zip_reader_get_filename(za, file_index,
-                filename, MZ_ZIP_MAX_ARCHIVE_FILENAME_SIZE)) {
-        lua_pushnil(L);
-        lua_pushfstring(L, "%d is an invalid index", file_index);
-        return 2;
-    }
+                filename, MZ_ZIP_MAX_ARCHIVE_FILENAME_SIZE))
+        return lmz_zip_pusherror(L, za, NULL);
     lua_pushstring(L, filename);
     return 1;
 }
@@ -460,7 +460,7 @@ static int Lzip_write_string(lua_State *L) {
     mz_zip_zero_struct(za);
     if (!mz_zip_writer_init_heap(za,
                 size_to_reserve_at_beginning, initial_allocation_size))
-        return 0;
+        return lmz_zip_pusherror(L, za, NULL);
     luaL_setmetatable(L, LMZ_ZIP_WRITER);
     return 1;
 }
@@ -471,7 +471,7 @@ static int Lzip_write_file(lua_State *L) {
     mz_zip_archive* za = (mz_zip_archive*)lua_newuserdata(L, sizeof(mz_zip_archive));
     mz_zip_zero_struct(za);
     if (!mz_zip_writer_init_file(za, filename, size_to_reserve_at_beginning))
-        return 0;
+        return lmz_zip_pusherror(L, za, filename);
     luaL_setmetatable(L, LMZ_ZIP_WRITER);
     return 1;
 }
@@ -486,11 +486,8 @@ static int Lwriter_add_from_zip_reader(lua_State *L) {
     mz_zip_archive *za = luaL_checkudata(L, 1, LMZ_ZIP_WRITER);
     mz_zip_archive *src = luaL_checkudata(L, 2, LMZ_ZIP_READER);
     mz_uint file_index = (mz_uint)luaL_checkinteger(L, 3) - 1;
-    if (!mz_zip_writer_add_from_zip_reader(za, src, file_index)) {
-        lua_pushnil(L);
-        lua_pushstring(L, "Failure to copy file between zips");
-        return 2;
-    }
+    if (!mz_zip_writer_add_from_zip_reader(za, src, file_index))
+        return lmz_zip_pusherror(L, za, NULL);
     return_self(L);
 }
 
@@ -502,11 +499,8 @@ static int Lwriter_add_string(lua_State *L) {
     const char *comment =luaL_optlstring(L, 5, NULL, &comment_len);
     mz_uint flags = (mz_uint)luaL_optinteger(L, 4, MZ_DEFAULT_LEVEL);
     if (!mz_zip_writer_add_mem_ex(za, path, s, len,
-            comment, (mz_uint16)comment_len, flags, 0, 0)) {
-        lua_pushnil(L);
-        lua_pushstring(L, "Failure to add entry to zip");
-        return 2;
-    }
+            comment, (mz_uint16)comment_len, flags, 0, 0))
+        return lmz_zip_pusherror(L, za, path);
     return_self(L);
 }
 
@@ -517,11 +511,8 @@ static int Lwriter_add_file(lua_State *L) {
     mz_uint flags = (mz_uint)luaL_optinteger(L, 4, MZ_DEFAULT_LEVEL);
     size_t len;
     const char *comment = luaL_optlstring(L, 5, NULL, &len);
-    if (!mz_zip_writer_add_file(za, path, filename, comment, (mz_uint16)len, flags)) {
-        lua_pushnil(L);
-        lua_pushstring(L, "Failure to add entry to zip");
-        return 2;
-    }
+    if (!mz_zip_writer_add_file(za, path, filename, comment, (mz_uint16)len, flags))
+        return lmz_zip_pusherror(L, za, filename);
     return_self(L);
 }
 
@@ -533,16 +524,9 @@ static int Lwriter_finalize(lua_State *L) {
         mz_bool result = mz_zip_writer_finalize_heap_archive(za, &s, &len);
         lua_pushlstring(L, s, len);
         free(s);
-        if (!result) {
-            lua_pushstring(L, "Problem finalizing archive");
-            return 2;
-        }
-        return 1;
-    } else if (!mz_zip_writer_finalize_archive(za)) {
-        lua_pushnil(L);
-        lua_pushstring(L, "Problem finalizing archive");
-        return 2;
-    }
+        return result ? 1 : lmz_zip_pusherror(L, za, NULL);
+    } else if (!mz_zip_writer_finalize_archive(za))
+        return lmz_zip_pusherror(L, za, NULL);
     return_self(L);
 }
 
