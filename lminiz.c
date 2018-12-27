@@ -111,10 +111,11 @@ static void lmz_initcomp(lua_State *L, int start, lmz_Comp *c) {
     { 0, 1, 6, 32, 16, 32, 128, 256, 512, 768, 1500 };
     int level = (int)luaL_optinteger(L, start, MZ_DEFAULT_LEVEL);
     mz_uint flags = probes[(level >= 0) ? MZ_MIN(10, level) : MZ_DEFAULT_LEVEL];
+    tdefl_status status;
     if (lua_tointeger(L, start+1) >= 0) flags |= TDEFL_WRITE_ZLIB_HEADER;
     if (level <= 3) flags |= TDEFL_GREEDY_PARSING_FLAG;
-    if (tdefl_init(c, NULL, NULL, flags) != TDEFL_STATUS_OKAY)
-        luaL_error(L, "compress failure");
+    if ((status = tdefl_init(c, NULL, NULL, flags)) != TDEFL_STATUS_OKAY)
+        luaL_error(L, "compress failure (%d)", status);
 }
 
 static void lmz_initdecomp(lua_State *L, int start, lmz_Decomp *d) {
@@ -145,7 +146,7 @@ static int lmz_compress(lua_State *L, int start, lmz_Comp *c, int flush) {
             lua_pushinteger(L, output);
             return 4;
         } else if (status != TDEFL_STATUS_OKAY)
-            luaL_error(L, "compress failure");
+            luaL_error(L, "compress failure (%d)", status);
     }
 }
 
@@ -170,7 +171,7 @@ static int lmz_decompress(lua_State *L, int start, lmz_Decomp *d) {
             lua_pushinteger(L, output);
             return 4;
         } else if (status < 0) 
-            luaL_error(L, "decompress failure");
+            luaL_error(L, "decompress failure (%d)", status);
         d->curr = &d->dict[(d->curr+out_size - d->dict) & (TINFL_LZ_DICT_SIZE-1)];
     }
 }
