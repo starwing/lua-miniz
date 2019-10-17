@@ -10,7 +10,7 @@
 
 #if LUA_VERSION_NUM < 502
 #  define luaL_setfuncs(L,libs,nups) luaL_register(L,NULL,libs)
-#ifndef luaL_newlib
+#ifndef LUA_LJDIR
 #  define luaL_newlib(L,libs) (\
         lua_createtable(L, 0, sizeof(libs)/sizeof(libs[0])), \
         luaL_register(L, NULL, libs))
@@ -19,7 +19,7 @@ static int lua_relindex(int idx, int onstack) {
     return idx >= 0 || idx <= LUA_REGISTRYINDEX ?
         idx : idx - onstack;
 }
-#ifndef LUAJIT_VERSION
+#ifndef LUA_LJDIR
 static void luaL_setmetatable(lua_State *L, const char *name) {
     luaL_getmetatable(L, name);
     lua_setmetatable(L, -2);
@@ -30,7 +30,7 @@ static void lua_rawsetp(lua_State *L, int idx, const void *p) {
     lua_insert(L, -2);
     lua_rawset(L, lua_relindex(idx, 1));
 }
-#ifndef LUAJIT_VERSION
+#ifndef LUA_LJDIR
 static void *luaL_testudata (lua_State *L, int ud, const char *tname) {
     void *p = lua_touserdata(L, ud);
     if (p != NULL) {
