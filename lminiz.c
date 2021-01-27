@@ -580,6 +580,6 @@ LUAMOD_API int luaopen_miniz(lua_State *L) {
 }
 
 /* win32cc: flags+='-s -O3 -mdll -DLUA_BUILD_AS_DLL -fno-strict-aliasing'
- * win32cc: libs+='-llua53' output='miniz.dll'
+ * win32cc: libs+='-llua54' output='miniz.dll'
  * maccc: flags+='-O3 -shared -undefined dynamic_lookup' output='miniz.so' */
 
