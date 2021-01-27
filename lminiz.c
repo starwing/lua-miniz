@@ -8,9 +8,12 @@
 
 #define return_self(L) do { lua_settop(L, 1); return 1; } while (0)
 
-#if LUA_VERSION_NUM < 502
+#if LUA_VERSION_NUM <= 501
+#ifndef LUAMOD_API
+# define LUAMOD_API LUALIB_API
+#endif
 #  define luaL_setfuncs(L,libs,nups) luaL_register(L,NULL,libs)
-#ifndef LUA_LJDIR
+#if !defined(LUA_LJDIR) && !defined(luaL_newlib)
 #  define luaL_newlib(L,libs) (\
         lua_createtable(L, 0, sizeof(libs)/sizeof(libs[0])), \
         luaL_register(L, NULL, libs))
@@ -25,11 +28,14 @@ static void luaL_setmetatable(lua_State *L, const char *name) {
     lua_setmetatable(L, -2);
 }
 #endif
+#ifndef lua_rawsetp
+#define lua_rawsetp lua_rawsetp
 static void lua_rawsetp(lua_State *L, int idx, const void *p) {
     lua_pushlightuserdata(L, (void*)p);
     lua_insert(L, -2);
     lua_rawset(L, lua_relindex(idx, 1));
 }
+#endif
 #ifndef LUA_LJDIR
 static void *luaL_testudata (lua_State *L, int ud, const char *tname) {
     void *p = lua_touserdata(L, ud);
@@ -45,6 +51,8 @@ static void *luaL_testudata (lua_State *L, int ud, const char *tname) {
     return NULL;
 }
 #endif
+#ifndef luaL_tolstring
+#define luaL_tolstring luaL_tolstring
 static const char *luaL_tolstring (lua_State *L, int idx, size_t *len) {
     if (!luaL_callmeta(L, idx, "__tostring")) {  /* no metafield? */
         switch (lua_type(L, idx)) {
@@ -66,6 +74,7 @@ static const char *luaL_tolstring (lua_State *L, int idx, size_t *len) {
     }
     return lua_tolstring(L, -1, len);
 }
+#endif
 #endif
 
 static int Ladler32(lua_State *L) {
@@ -333,8 +342,8 @@ static int Lreader_get_num_files(lua_State *L) {
 
 static int Lreader_get_offset(lua_State *L) {
     mz_zip_archive *za = luaL_checkudata(L, 1, LMZ_ZIP_READER);
-    lua_pushinteger(L, mz_zip_get_archive_file_start_offset(za));
-    lua_pushinteger(L, mz_zip_get_archive_size(za));
+    lua_pushinteger(L, (lua_Integer)mz_zip_get_archive_file_start_offset(za));
+    lua_pushinteger(L, (lua_Integer)mz_zip_get_archive_size(za));
     return 2;
 }
 
@@ -365,13 +374,13 @@ static int Lreader_stat(lua_State* L) {
     lua_setfield(L, -2, "bit_flag");
     lua_pushinteger(L, stat.m_method);
     lua_setfield(L, -2, "method");
-    lua_pushinteger(L, stat.m_time);
+    lua_pushinteger(L, (lua_Integer)stat.m_time);
     lua_setfield(L, -2, "time");
     lua_pushinteger(L, stat.m_crc32);
     lua_setfield(L, -2, "crc32");
-    lua_pushinteger(L, stat.m_comp_size);
+    lua_pushinteger(L, (lua_Integer)stat.m_comp_size);
     lua_setfield(L, -2, "comp_size");
-    lua_pushinteger(L, stat.m_uncomp_size);
+    lua_pushinteger(L, (lua_Integer)stat.m_uncomp_size);
     lua_setfield(L, -2, "uncomp_size");
     lua_pushinteger(L, stat.m_internal_attr);
     lua_setfield(L, -2, "internal_attr");
