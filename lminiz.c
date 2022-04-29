@@ -154,7 +154,7 @@ static int lmz_compress(lua_State *L, int start, lmz_Comp *c, int flush) {
         offset += in_size;
         output += out_size;
         luaL_addsize(&b, out_size);
-        if (offset == len || status == TDEFL_STATUS_DONE) {
+        if (status == TDEFL_STATUS_DONE) {
             luaL_pushresult(&b);
             lua_pushboolean(L, status == TDEFL_STATUS_DONE);
             lua_pushinteger(L, len);
@@ -179,7 +179,7 @@ static int lmz_decompress(lua_State *L, int start, lmz_Decomp *d) {
         offset += in_size;
         output += out_size;
         if (out_size != 0) luaL_addlstring(&b, (char*)d->curr, out_size);
-        if (offset == len || status == TINFL_STATUS_DONE) {
+        if (status == TINFL_STATUS_DONE) {
             luaL_pushresult(&b);
             lua_pushboolean(L, status == TINFL_STATUS_DONE);
             lua_pushinteger(L, len);
