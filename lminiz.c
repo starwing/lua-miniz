@@ -494,6 +494,8 @@ static int Lzip_write_file(lua_State *L) {
 
 static int Lwriter_close(lua_State *L) {
     mz_zip_archive *za = luaL_checkudata(L, 1, LMZ_ZIP_WRITER);
+    if (mz_zip_get_mode(za) != MZ_ZIP_MODE_WRITING_HAS_BEEN_FINALIZED)
+        mz_zip_writer_finalize_archive(za);
     lua_pushboolean(L, mz_zip_writer_end(za));
     return 1;
 }
