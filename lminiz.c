@@ -36,7 +36,8 @@ static void lua_rawsetp(lua_State *L, int idx, const void *p) {
     lua_rawset(L, lua_relindex(idx, 1));
 }
 #endif
-#ifndef LUA_LJDIR
+#if !defined(LUA_LJDIR) && !defined(luaL_testudata)
+#define luaL_testudata luaL_testudata
 static void *luaL_testudata (lua_State *L, int ud, const char *tname) {
     void *p = lua_touserdata(L, ud);
     if (p != NULL) {
